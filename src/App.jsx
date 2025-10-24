@@ -9,6 +9,49 @@ const ExpenseCategorizer = () => {
     'Software & Subscriptions', 'Equipment', 'Bank Fees', 'Other'
   ];
 
+  // Smart categorization rules
+  const categorizationRules = {
+    'Meals & Entertainment': [
+      'restaurant', 'cafe', 'coffee', 'starbucks', 'mcdonald', 'subway', 'pizza',
+      'burger', 'food', 'dining', 'bar', 'pub', 'grill', 'kitchen', 'bistro',
+      'tim hortons', 'wendy', 'kfc', 'taco bell', 'chipotle', 'panera'
+    ],
+    'Travel': [
+      'airline', 'hotel', 'uber', 'lyft', 'taxi', 'parking', 'rental car',
+      'airbnb', 'flight', 'airport', 'gas station', 'shell', 'esso', 'petro',
+      'transit', 'train', 'bus'
+    ],
+    'Office Supplies': [
+      'staples', 'office depot', 'amazon', 'paper', 'supply', 'pen', 'printer'
+    ],
+    'Equipment': [
+      'home depot', 'lowes', 'hardware', 'tools', 'equipment', 'best buy',
+      'electronics', 'computer', 'laptop'
+    ],
+    'Software & Subscriptions': [
+      'microsoft', 'adobe', 'google', 'subscription', 'saas', 'software',
+      'zoom', 'slack', 'dropbox', 'netflix', 'spotify', 'annual fee'
+    ],
+    'Utilities': [
+      'electric', 'power', 'gas utility', 'water', 'internet', 'phone',
+      'hydro', 'bell', 'rogers', 'telus'
+    ],
+    'Insurance': [
+      'insurance', 'life ins', 'health ins', 'liability'
+    ],
+    'Professional Services': [
+      'legal', 'accounting', 'consultant', 'lawyer', 'cpa', 'bookkeeping'
+    ],
+    'Marketing & Advertising': [
+      'google ads', 'facebook ads', 'advertising', 'marketing', 'social media',
+      'mailchimp', 'constant contact'
+    ],
+    'Bank Fees': [
+      'bank fee', 'service charge', 'overdraft', 'atm fee', 'wire transfer',
+      'monthly fee', 'transaction fee'
+    ]
+  };
+
   const [transactions, setTransactions] = useState([]);
   const [categories, setCategories] = useState(defaultCategories);
   const [newCategory, setNewCategory] = useState('');
@@ -22,6 +65,21 @@ const ExpenseCategorizer = () => {
     description: '',
     amount: ''
   });
+
+  // Auto-categorize based on description
+  const autoCategorizTransaction = (description) => {
+    const lowerDesc = description.toLowerCase();
+    
+    for (const [category, keywords] of Object.entries(categorizationRules)) {
+      for (const keyword of keywords) {
+        if (lowerDesc.includes(keyword)) {
+          return category;
+        }
+      }
+    }
+    
+    return 'Uncategorized';
+  };
 
   const handleFileUpload = (e) => {
     const file = e.target.files[0];
@@ -42,13 +100,16 @@ const ExpenseCategorizer = () => {
   };
 
   const confirmMapping = () => {
-    const newTransactions = csvData.map((row, idx) => ({
-      id: Date.now() + idx,
-      date: String(row[columnMapping.date] || ''),
-      description: String(row[columnMapping.description] || ''),
-      amount: Math.abs(parseFloat(row[columnMapping.amount]) || 0),
-      category: 'Uncategorized'
-    })).filter(t => t.amount > 0);
+    const newTransactions = csvData.map((row, idx) => {
+      const description = String(row[columnMapping.description] || '');
+      return {
+        id: Date.now() + idx,
+        date: String(row[columnMapping.date] || ''),
+        description: description,
+        amount: Math.abs(parseFloat(row[columnMapping.amount]) || 0),
+        category: autoCategorizTransaction(description)
+      };
+    }).filter(t => t.amount > 0);
 
     setTransactions([...transactions, ...newTransactions]);
     setView('categorize');
@@ -124,6 +185,7 @@ const ExpenseCategorizer = () => {
   };
 
   const totalExpenses = transactions.reduce((sum, tx) => sum + tx.amount, 0);
+  const uncategorizedCount = transactions.filter(tx => tx.category === 'Uncategorized').length;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-6">
@@ -147,7 +209,7 @@ const ExpenseCategorizer = () => {
                 className={`px-4 py-2 rounded-lg ${view === 'categorize' ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-700'}`}
                 disabled={transactions.length === 0}
               >
-                Categorize
+                Review ({uncategorizedCount} need review)
               </button>
               <button
                 onClick={() => setView('summary')}
@@ -171,7 +233,7 @@ const ExpenseCategorizer = () => {
             <div className="text-center py-16">
               <Upload className="w-16 h-16 text-indigo-400 mx-auto mb-4" />
               <h2 className="text-2xl font-semibold mb-4">Upload Credit Card Statement</h2>
-              <p className="text-gray-600 mb-8">Upload your CSV file to get started</p>
+              <p className="text-gray-600 mb-8">Upload your CSV file and we'll auto-categorize your transactions</p>
               <input
                 type="file"
                 accept=".csv"
@@ -240,7 +302,7 @@ const ExpenseCategorizer = () => {
                   disabled={!columnMapping.date || !columnMapping.description || !columnMapping.amount}
                   className="w-full bg-indigo-600 text-white px-6 py-3 rounded-lg disabled:bg-gray-300 disabled:cursor-not-allowed hover:bg-indigo-700 transition"
                 >
-                  Import Transactions
+                  Auto-Categorize Transactions
                 </button>
               </div>
             </div>
@@ -248,10 +310,41 @@ const ExpenseCategorizer = () => {
 
           {view === 'categorize' && (
             <div className="py-8">
-              <h2 className="text-2xl font-semibold mb-6">Categorize Transactions</h2>
+              <h2 className="text-2xl font-semibold mb-6">Review & Adjust Categories</h2>
+              
+              {uncategorizedCount > 0 && (
+                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-6">
+                  <p className="text-yellow-800 font-medium">
+                    {uncategorizedCount} transaction{uncategorizedCount > 1 ? 's' : ''} need{uncategorizedCount === 1 ? 's' : ''} manual categorization
+                  </p>
+                </div>
+              )}
+
+              <div className="mb-4 flex gap-2">
+                <button
+                  onClick={() => setView('categorize')}
+                  className="px-4 py-2 bg-gray-200 rounded-lg text-sm"
+                >
+                  All Transactions
+                </button>
+                <button
+                  onClick={() => {
+                    // Filter to show only uncategorized
+                  }}
+                  className="px-4 py-2 bg-yellow-100 rounded-lg text-sm"
+                >
+                  Uncategorized Only ({uncategorizedCount})
+                </button>
+              </div>
+
               <div className="space-y-2 max-h-[600px] overflow-y-auto">
                 {transactions.map(tx => (
-                  <div key={tx.id} className="flex items-center gap-4 p-4 bg-gray-50 rounded-lg">
+                  <div 
+                    key={tx.id} 
+                    className={`flex items-center gap-4 p-4 rounded-lg ${
+                      tx.category === 'Uncategorized' ? 'bg-yellow-50 border border-yellow-200' : 'bg-gray-50'
+                    }`}
+                  >
                     <div className="flex-1">
                       <p className="font-medium">{tx.description}</p>
                       <p className="text-sm text-gray-500">{tx.date}</p>
@@ -260,7 +353,9 @@ const ExpenseCategorizer = () => {
                     <select
                       value={tx.category}
                       onChange={(e) => updateCategory(tx.id, e.target.value)}
-                      className="border rounded-lg px-4 py-2 min-w-[200px]"
+                      className={`border rounded-lg px-4 py-2 min-w-[200px] ${
+                        tx.category === 'Uncategorized' ? 'border-yellow-400 bg-white' : ''
+                      }`}
                     >
                       <option value="Uncategorized">Uncategorized</option>
                       {categories.map(cat => (
