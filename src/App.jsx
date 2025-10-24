@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Upload, Download, PieChart, TrendingUp, Settings, Plus, X, Edit2, Check } from 'lucide-react';
 import Papa from 'papaparse';
 
@@ -54,6 +54,7 @@ const ExpenseCategorizer = () => {
 
   const [transactions, setTransactions] = useState([]);
   const [categories, setCategories] = useState(defaultCategories);
+  const [learnedMappings, setLearnedMappings] = useState({});
   const [newCategory, setNewCategory] = useState('');
   const [editingCategory, setEditingCategory] = useState(null);
   const [editValue, setEditValue] = useState('');
@@ -66,10 +67,35 @@ const ExpenseCategorizer = () => {
     amount: ''
   });
 
+  // Load learned mappings from localStorage on mount
+  useEffect(() => {
+    const saved = localStorage.getItem('learnedMappings');
+    if (saved) {
+      try {
+        setLearnedMappings(JSON.parse(saved));
+      } catch (e) {
+        console.error('Error loading learned mappings:', e);
+      }
+    }
+  }, []);
+
+  // Save learned mappings to localStorage whenever they change
+  useEffect(() => {
+    localStorage.setItem('learnedMappings', JSON.stringify(learnedMappings));
+  }, [learnedMappings]);
+
   // Auto-categorize based on description
   const autoCategorizTransaction = (description) => {
     const lowerDesc = description.toLowerCase();
     
+    // First check learned mappings (highest priority)
+    for (const [key, category] of Object.entries(learnedMappings)) {
+      if (lowerDesc.includes(key.toLowerCase())) {
+        return category;
+      }
+    }
+    
+    // Then check default rules
     for (const [category, keywords] of Object.entries(categorizationRules)) {
       for (const keyword of keywords) {
         if (lowerDesc.includes(keyword)) {
@@ -116,6 +142,15 @@ const ExpenseCategorizer = () => {
   };
 
   const updateCategory = (txId, category) => {
+    const transaction = transactions.find(tx => tx.id === txId);
+    
+    if (transaction && category !== 'Uncategorized') {
+      // Learn this mapping for future use
+      const newMappings = { ...learnedMappings };
+      newMappings[transaction.description] = category;
+      setLearnedMappings(newMappings);
+    }
+    
     const updated = transactions.map(tx => 
       tx.id === txId ? { ...tx, category } : tx
     );
@@ -157,6 +192,13 @@ const ExpenseCategorizer = () => {
     setTransactions(updatedTx);
   };
 
+  const clearLearnedMappings = () => {
+    if (window.confirm('Are you sure you want to clear all learned categorizations? This cannot be undone.')) {
+      setLearnedMappings({});
+      localStorage.removeItem('learnedMappings');
+    }
+  };
+
   const exportData = () => {
     const summary = {};
     transactions.forEach(tx => {
@@ -186,6 +228,7 @@ const ExpenseCategorizer = () => {
 
   const totalExpenses = transactions.reduce((sum, tx) => sum + tx.amount, 0);
   const uncategorizedCount = transactions.filter(tx => tx.category === 'Uncategorized').length;
+  const learnedCount = Object.keys(learnedMappings).length;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-6">
@@ -209,7 +252,7 @@ const ExpenseCategorizer = () => {
                 className={`px-4 py-2 rounded-lg ${view === 'categorize' ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-700'}`}
                 disabled={transactions.length === 0}
               >
-                Review ({uncategorizedCount} need review)
+                Review {uncategorizedCount > 0 && `(${uncategorizedCount})`}
               </button>
               <button
                 onClick={() => setView('summary')}
@@ -224,7 +267,7 @@ const ExpenseCategorizer = () => {
                 className={`px-4 py-2 rounded-lg ${view === 'settings' ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-700'}`}
               >
                 <Settings className="w-4 h-4 inline mr-2" />
-                Categories
+                Settings
               </button>
             </div>
           </div>
@@ -251,6 +294,13 @@ const ExpenseCategorizer = () => {
                 <p className="mt-4 text-sm text-gray-500">
                   Currently managing {transactions.length} transactions
                 </p>
+              )}
+              {learnedCount > 0 && (
+                <div className="mt-6 p-4 bg-green-50 border border-green-200 rounded-lg inline-block">
+                  <p className="text-green-800 text-sm">
+                    🧠 {learnedCount} learned categorization{learnedCount > 1 ? 's' : ''} saved
+                  </p>
+                </div>
               )}
             </div>
           )}
@@ -317,25 +367,11 @@ const ExpenseCategorizer = () => {
                   <p className="text-yellow-800 font-medium">
                     {uncategorizedCount} transaction{uncategorizedCount > 1 ? 's' : ''} need{uncategorizedCount === 1 ? 's' : ''} manual categorization
                   </p>
+                  <p className="text-yellow-700 text-sm mt-1">
+                    💡 Once you categorize these, the tool will remember for next time!
+                  </p>
                 </div>
               )}
-
-              <div className="mb-4 flex gap-2">
-                <button
-                  onClick={() => setView('categorize')}
-                  className="px-4 py-2 bg-gray-200 rounded-lg text-sm"
-                >
-                  All Transactions
-                </button>
-                <button
-                  onClick={() => {
-                    // Filter to show only uncategorized
-                  }}
-                  className="px-4 py-2 bg-yellow-100 rounded-lg text-sm"
-                >
-                  Uncategorized Only ({uncategorizedCount})
-                </button>
-              </div>
 
               <div className="space-y-2 max-h-[600px] overflow-y-auto">
                 {transactions.map(tx => (
@@ -411,73 +447,96 @@ const ExpenseCategorizer = () => {
 
           {view === 'settings' && (
             <div className="py-8">
-              <h2 className="text-2xl font-semibold mb-6">Manage Categories</h2>
+              <h2 className="text-2xl font-semibold mb-6">Settings</h2>
               
-              <div className="mb-6">
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={newCategory}
-                    onChange={(e) => setNewCategory(e.target.value)}
-                    onKeyPress={(e) => e.key === 'Enter' && addCategory()}
-                    placeholder="New category name"
-                    className="flex-1 border rounded-lg px-4 py-2"
-                  />
-                  <button
-                    onClick={addCategory}
-                    className="bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition"
-                  >
-                    <Plus className="w-4 h-4 inline mr-1" />
-                    Add
-                  </button>
+              <div className="mb-8">
+                <h3 className="text-lg font-semibold mb-4">Manage Categories</h3>
+                <div className="mb-4">
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={newCategory}
+                      onChange={(e) => setNewCategory(e.target.value)}
+                      onKeyPress={(e) => e.key === 'Enter' && addCategory()}
+                      placeholder="New category name"
+                      className="flex-1 border rounded-lg px-4 py-2"
+                    />
+                    <button
+                      onClick={addCategory}
+                      className="bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition"
+                    >
+                      <Plus className="w-4 h-4 inline mr-1" />
+                      Add
+                    </button>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  {categories.map(cat => (
+                    <div key={cat} className="flex items-center gap-2 p-3 bg-gray-50 rounded-lg">
+                      {editingCategory === cat ? (
+                        <>
+                          <input
+                            type="text"
+                            value={editValue}
+                            onChange={(e) => setEditValue(e.target.value)}
+                            onKeyPress={(e) => e.key === 'Enter' && saveEditCategory()}
+                            className="flex-1 border rounded px-3 py-1"
+                            autoFocus
+                          />
+                          <button
+                            onClick={saveEditCategory}
+                            className="text-green-600 hover:text-green-700"
+                          >
+                            <Check className="w-5 h-5" />
+                          </button>
+                          <button
+                            onClick={() => setEditingCategory(null)}
+                            className="text-gray-600 hover:text-gray-700"
+                          >
+                            <X className="w-5 h-5" />
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <span className="flex-1">{cat}</span>
+                          <button
+                            onClick={() => startEditCategory(cat)}
+                            className="text-blue-600 hover:text-blue-700"
+                          >
+                            <Edit2 className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => deleteCategory(cat)}
+                            className="text-red-600 hover:text-red-700"
+                          >
+                            <X className="w-5 h-5" />
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  ))}
                 </div>
               </div>
 
-              <div className="space-y-2">
-                {categories.map(cat => (
-                  <div key={cat} className="flex items-center gap-2 p-3 bg-gray-50 rounded-lg">
-                    {editingCategory === cat ? (
-                      <>
-                        <input
-                          type="text"
-                          value={editValue}
-                          onChange={(e) => setEditValue(e.target.value)}
-                          onKeyPress={(e) => e.key === 'Enter' && saveEditCategory()}
-                          className="flex-1 border rounded px-3 py-1"
-                          autoFocus
-                        />
-                        <button
-                          onClick={saveEditCategory}
-                          className="text-green-600 hover:text-green-700"
-                        >
-                          <Check className="w-5 h-5" />
-                        </button>
-                        <button
-                          onClick={() => setEditingCategory(null)}
-                          className="text-gray-600 hover:text-gray-700"
-                        >
-                          <X className="w-5 h-5" />
-                        </button>
-                      </>
-                    ) : (
-                      <>
-                        <span className="flex-1">{cat}</span>
-                        <button
-                          onClick={() => startEditCategory(cat)}
-                          className="text-blue-600 hover:text-blue-700"
-                        >
-                          <Edit2 className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() => deleteCategory(cat)}
-                          className="text-red-600 hover:text-red-700"
-                        >
-                          <X className="w-5 h-5" />
-                        </button>
-                      </>
-                    )}
-                  </div>
-                ))}
+              <div className="border-t pt-6">
+                <h3 className="text-lg font-semibold mb-4">Learned Categorizations</h3>
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
+                  <p className="text-blue-800 mb-2">
+                    🧠 The tool has learned <strong>{learnedCount}</strong> categorization{learnedCount !== 1 ? 's' : ''}
+                  </p>
+                  <p className="text-blue-700 text-sm">
+                    These are saved in your browser and will automatically categorize matching transactions in the future.
+                  </p>
+                </div>
+                {learnedCount > 0 && (
+                  <button
+                    onClick={clearLearnedMappings}
+                    className="bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition"
+                  >
+                    Clear All Learned Categorizations
+                  </button>
+                )}
               </div>
             </div>
           )}
